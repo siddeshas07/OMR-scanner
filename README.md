@@ -1,2 +1,2 @@
 # OMR-scanner
-![ScreenShot](
+![ScreenShot](MCQPaper_LI.jpg)
