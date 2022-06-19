@@ -1,0 +1,159 @@
+import 'package:flutter/material.dart';
+import 'dart:io' as Io;
+import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:camera/camera.dart';
+import 'package:path/path.dart' show join;
+import 'package:path_provider/path_provider.dart';
+import 'package:image_cropper/image_cropper.dart';
+
+
+String mpath='';
+Future<void> main() async{
+  WidgetsFlutterBinding.ensureInitialized();
+  final cameras =await availableCameras();
+  final firstCamera= cameras.first;
+  runApp(MaterialApp(
+    home:TC(
+      camera: firstCamera,
+    ),
+  ),);
+}
+class TC extends StatefulWidget {
+  final CameraDescription camera;
+  const TC({
+    Key key,
+    @required this.camera,
+}):super(key: key);
+  @override
+  _TCState createState() => _TCState();
+}
+
+class _TCState extends State<TC> {
+
+ CameraController _controller;
+ Future<void> _initConF;
+  @override
+  void initState(){
+    super.initState();
+    _controller=CameraController(widget.camera, ResolutionPreset.veryHigh);
+    _initConF=_controller.initialize();
+  }
+
+  void dispose(){
+    _controller.dispose();
+
+    super.dispose();
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+
+    return Scaffold(
+
+      appBar: AppBar(title:Center(child: Text('Omr Scanner')),
+
+      ),
+
+      body: FutureBuilder<void>(
+        future: _initConF,
+        builder: (context,snapshot){
+          if(snapshot.connectionState==ConnectionState.done){
+            return CameraPreview(_controller);
+          }else {
+            return Center(child:CircularProgressIndicator());
+          }
+        },
+      ),
+
+
+
+
+    floatingActionButton: FloatingActionButton(
+          child:Icon(Icons.camera_alt),
+          onPressed: ()async{
+            try {
+              await _initConF;
+              final path = join(
+                (await getTemporaryDirectory()).path,
+                '${DateTime.now()}.png',
+              );
+
+
+
+
+              await _controller.takePicture(path);
+             DisplayPictureScreen d=new DisplayPictureScreen();
+
+             d.cropper(path);
+
+
+            }
+            catch(e){print(e);}
+          },
+        ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+    );
+
+
+
+
+
+
+
+  }
+
+
+}
+
+
+class DisplayPictureScreen extends StatelessWidget
+{
+
+  void cropper(String imagePath) async{
+    Io.File cropped = await ImageCropper.cropImage(
+        sourcePath: imagePath,
+        aspectRatioPresets: [
+          CropAspectRatioPreset.square,
+          CropAspectRatioPreset.ratio3x2,
+          CropAspectRatioPreset.original,
+          CropAspectRatioPreset.ratio4x3,
+          CropAspectRatioPreset.ratio16x9
+        ],
+        androidUiSettings: AndroidUiSettings(
+            toolbarTitle: 'Cropper',
+            toolbarColor: Colors.blue,
+            toolbarWidgetColor: Colors.white,
+
+            initAspectRatio: CropAspectRatioPreset.original,
+            lockAspectRatio: false),
+        iosUiSettings: IOSUiSettings(
+          minimumAspectRatio: 1.0,
+
+        )
+    );
+    final bytes=await Io.File(cropped.path).readAsBytes();
+    var enc =json.encode(bytes);
+
+    print(enc);
+    final  response =await http.post("http://192.168.1.11:5000/user",body:{'data':enc});
+    if (response.statusCode==200)
+    { print("Success");
+
+
+  }
+
+  }
+
+
+
+
+  @override
+  Widget build(BuildContext context) {
+    // TODO: implement build
+    throw UnimplementedError();
+  }
+
+}

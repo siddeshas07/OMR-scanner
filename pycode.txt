@@ -1,0 +1,830 @@
+import cv2
+import numpy as np
+import pymongo
+from flask import Flask,jsonify,Response,request
+import json
+import io
+import os
+from PIL  import Image
+from PIL import ImageDraw
+from PIL import ImageFont
+import binascii
+
+app=Flask(__name__)
+i=0
+fp=''
+filename="imgs_%i.png"%i
+@app.route('/user',methods=['POST'])
+
+###################################################################
+
+def resp():
+    global i
+    global fp
+    jsondata=request.form['data']
+    dataf=json.loads(jsondata)
+    #print("Hello")
+    datab=bytearray(dataf)
+    stream=io.BytesIO(datab)
+    img=Image.open(stream)
+    img=img.rotate(0,Image.NEAREST,expand=1)
+    draw=ImageDraw.Draw(img)
+    fp="C:/Users/Kamran/Desktop/project/imp{}".format(i)
+    path=fp+'.png'
+    img.save(fp+'.png','PNG')
+    process(path)
+    #img.show()
+    i=i+1
+    
+    return 'OK'	
+
+
+
+
+
+###################################################################
+
+def getCorner(cont):
+    peri= cv2.arcLength(cont,True)
+    approx= cv2.approxPolyDP(cont,0.02*peri,True)
+    return approx
+    
+####################################################################    
+
+def reorder(myPoints):
+    myPoints= myPoints.reshape((4,2))
+    myPointsnew= np.zeros((4,1,2),np.int32)
+    add = myPoints.sum(1)
+   # print(myPoints)
+   # print(add)
+    myPointsnew[0]=myPoints[np.argmin(add)] #[0,0]
+    myPointsnew[3]=myPoints[np.argmax(add)] #[w,h]
+    diff=np.diff(myPoints,axis=1)
+    myPointsnew[1]=myPoints[np.argmin(diff)]  #[w,0]
+    myPointsnew[2]=myPoints[np.argmax(diff)]  #[0,h]
+    #print(diff)
+    return myPointsnew
+    
+######################################################################    
+
+def splitboxes(imag):
+    cols = np.hsplit(imag,50)
+    #cv2.imshow("test1",cols[16])
+    boxes=[]
+    for c in cols:
+        rows=np.vsplit(c,28)
+        for box in rows:
+            boxes.append(box)
+            #cv2.imshow("sp",box)
+    return boxes
+    
+##########################################################################
+
+def splitboxes1(imag):
+    cols = np.hsplit(imag,50)
+    #cv2.imshow("test1",cols[1])
+    boxes=[]
+    for c in cols:
+        rows=np.vsplit(c,28)
+        for box in rows:
+            boxes.append(box)
+            #cv2.imshow("sp",box)
+    return boxes 
+ 
+######################################
+
+widthImg=700
+heightImg=700
+rectCon=[]
+
+#####################################
+def process(path):
+    keyres=["1a","2b","3c","4d","5b","6a","7c","8b","9d","10a","11a","12b","13c","14a","15d","16b","17a","18b","19a","20b","21c","22b","23a","24b","25d","26d","27a","28b","29a","30a"]
+    global rectCon  
+    global widthImg
+    global heightImg
+    #print("Hello process")
+    img =cv2.imread(path)
+    keystud=[]
+    rollno=[]
+
+    img =cv2.resize(img,(widthImg,heightImg))
+    imgC= img.copy()
+    imgBC= img.copy()
+    imgBCT= img.copy()
+    imggry= cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+
+    imgblr=cv2.GaussianBlur(imggry,(5,5),1)
+    imgcny = cv2.Canny(imgblr,10,80)
+     
+     
+
+
+    #cv2.imshow("1a",img)
+    #cv2.imshow("2a",imggry)
+    #cv2.imshow("3a",imgblr)
+    #cv2.imshow("4a",imgcny)
+    #cv2.imshow("5a",imgbw)
+
+    contours, hierarchy =cv2.findContours(imgcny,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
+
+    cv2.drawContours(imgC,contours,-1,(255,0,0),10)
+    for i in contours:
+        area=cv2.contourArea(i)
+        if area>50:
+            peri =cv2.arcLength(i,True)
+            approx=cv2.approxPolyDP(i,0.02*peri,True)
+            if(len(approx))==4:
+                rectCon.append(i)
+    rectCon = sorted(rectCon,key=cv2.contourArea,reverse=True)
+
+    bgC=getCorner(rectCon[0])
+    #print(bgC.shape)
+    Gid= bgC
+    Gans=getCorner(rectCon[2])
+    Gans1=getCorner(rectCon[1])
+    bgC=reorder(bgC)
+    Gans=reorder(Gans)
+    Gans1=reorder(Gans1)
+
+    ptg1=np.float32(bgC)
+    ptg2=np.float32([[0,0],[1400,0],[0,heightImg],[1400,heightImg]])
+    matrixG= cv2.getPerspectiveTransform(ptg1,ptg2)
+    imawg=cv2.warpPerspective(img,matrixG,(1400,heightImg))
+
+    #cv2.imshow("1",imawg)
+
+    pt1=np.float32(Gans)
+    pt2=np.float32([[0,0],[widthImg,0],[0,heightImg],[widthImg,heightImg]])
+    matrix= cv2.getPerspectiveTransform(pt1,pt2)
+    imaewarpClr=cv2.warpPerspective(img,matrix,(widthImg,heightImg))
+    #cv2.imshow("2",imaewarpClr)
+
+    ptga1=np.float32(Gans1)
+    ptga2=np.float32([[0,0],[1000,0],[0,heightImg],[1000,heightImg]])
+    matrixG1= cv2.getPerspectiveTransform(ptga1,ptga2)
+    imawg1=cv2.warpPerspective(img,matrixG1,(1000,heightImg))
+
+    #cv2.imshow("3",imawg1)
+
+    if bgC.size!=0 and Gans.size!=0 and Gans1.size!=0:
+        cv2.drawContours(imgBC,Gid,-1,(0,255,0),20)
+        cv2.drawContours(imgBC,Gans,-1,(0,255,255),20)
+        cv2.drawContours(imgBC,Gans1 ,-1,(0,255,255),20)
+
+
+
+
+    ##############################
+    imgwgry= cv2.cvtColor(imaewarpClr,cv2.COLOR_BGR2GRAY)
+    imgthresh= cv2.threshold(imgwgry,100,240,cv2.THRESH_BINARY_INV)[1]
+
+
+    imgwgry1= cv2.cvtColor(imawg,cv2.COLOR_BGR2GRAY)
+    imgthresh1= cv2.threshold(imgwgry1,100,240,cv2.THRESH_BINARY_INV)[1]
+    
+    imgwgry2= cv2.cvtColor(imawg1,cv2.COLOR_BGR2GRAY)
+    imgTHR= cv2.threshold(imgwgry2,100,240,cv2.THRESH_BINARY_INV)[1]
+    
+    #cv2.imshow("41",imgthresh)
+    #cv2.imshow("42",imgthresh1)
+    #cv2.imshow("43",imgTHR)
+    
+    ############################
+    Box=splitboxes(imgthresh)
+    Box1=splitboxes1(imgthresh1)
+    Box2=splitboxes(imgTHR)
+    
+    
+    
+    ### for roll number ###
+    
+    if  cv2.countNonZero(Box2[117])>50:
+        rollno.append('1')
+        
+    elif  cv2.countNonZero(Box2[119])>50:
+        rollno.append('2')
+        
+    elif  cv2.countNonZero(Box2[121])>50:
+        rollno.append('3')
+        
+    elif  cv2.countNonZero(Box2[124])>50:
+        rollno.append('4')
+        
+    elif cv2.countNonZero(Box2[126])>50:
+        rollno.append('5')
+        
+    elif  cv2.countNonZero(Box2[128])>50:
+        rollno.append('6')
+        
+    elif  cv2.countNonZero(Box2[131])>50:
+        rollno.append('7')
+        
+    elif cv2.countNonZero(Box2[133])>50:
+        rollno.append('8')
+        
+    elif  cv2.countNonZero(Box2[135])>50:
+        rollno.append('9')
+        
+    elif  cv2.countNonZero(Box2[138])>50:
+        rollno.append('0')
+        
+        #end of 1 #
+        
+    if  cv2.countNonZero(Box2[202])>50:
+        rollno.append('1')
+        
+    elif  cv2.countNonZero(Box2[204])>50:
+        rollno.append('2')
+        
+    elif  cv2.countNonZero(Box2[206])>50:
+        rollno.append('3')
+        
+    elif  cv2.countNonZero(Box2[208])>50:
+        rollno.append('4')
+        
+    elif  cv2.countNonZero(Box2[210])>50:
+        rollno.append('5')
+        
+    elif cv2.countNonZero(Box2[213])>50:
+        rollno.append('6')
+        
+    elif  cv2.countNonZero(Box2[215])>50:
+        rollno.append('7')
+        
+    elif cv2.countNonZero(Box2[217])>50:
+        rollno.append('8')
+        
+    elif cv2.countNonZero(Box2[219])>50:
+        rollno.append('9')
+        
+    elif cv2.countNonZero(Box2[222])>50:
+        rollno.append('0')
+        
+        #end of 2#
+        
+    if  cv2.countNonZero(Box2[286])>10:
+        rollno.append('1')
+        
+    elif cv2.countNonZero(Box2[288])>10:
+        rollno.append('2')
+        
+    elif  cv2.countNonZero(Box2[290])>10:
+        rollno.append('3')
+        
+    elif cv2.countNonZero(Box2[292])>10:
+        rollno.append('4')
+        
+    elif  cv2.countNonZero(Box2[294])>10:
+        rollno.append('5')
+        
+    elif  cv2.countNonZero(Box2[296])>10:
+        rollno.append('6')
+        
+    elif  cv2.countNonZero(Box2[299])>10:
+        rollno.append('7')
+        
+    elif  cv2.countNonZero(Box2[301])>10:
+        rollno.append('8')
+        
+    elif  cv2.countNonZero(Box2[303])>10:
+        rollno.append('9')
+        
+    elif  cv2.countNonZero(Box2[305])>10:
+        rollno.append('0')
+        
+    #end of 3#
+    print(rollno)    
+     
+     
+    ### for 1st box ###
+    testres=[]
+    
+    
+    #print(cv2.countNonZero(Box[53]))
+    
+    if cv2.countNonZero(Box[260])>50:
+        print("1a")
+        keystud.append('1a')
+        
+    elif cv2.countNonZero(Box[372])>50:
+        print("1b")
+        keystud.append('1b')
+        
+    elif cv2.countNonZero(Box[484])>50:
+        print("1c")
+        keystud.append('1c')
+        
+    elif cv2.countNonZero(Box[596])>50:
+        print("1d")
+        keystud.append('1d')
+        
+        
+    if cv2.countNonZero(Box[264])>50:
+        print("2a")
+        keystud.append('2a')
+        
+        
+    elif cv2.countNonZero(Box[376])>50:
+        print("2b")
+        keystud.append('2b')
+        
+    elif cv2.countNonZero(Box[488])>50:
+        print("2c")
+        keystud.append('2c')
+        
+    elif cv2.countNonZero(Box[600])>50:
+        print("2d")
+        keystud.append('2d')
+        
+    if cv2.countNonZero(Box[269])>50:
+        print("3a")
+        keystud.append('3a')
+        
+    elif cv2.countNonZero(Box[381])>50:
+        print("3b")
+        keystud.append('3b')
+        
+        
+    elif cv2.countNonZero(Box[493])>50:
+        print("3c")
+        keystud.append('3c')
+        
+    elif cv2.countNonZero(Box[605])>50:
+        print("3d")
+        keystud.append('3d')
+    
+    if cv2.countNonZero(Box[273])>50:
+        print("4a")
+        keystud.append('4a')
+        
+    elif cv2.countNonZero(Box[385])>50:
+        print("4b")
+        keystud.append('4b')
+        
+    elif cv2.countNonZero(Box[497])>50:
+        print("4c")
+        keystud.append('4c')
+    
+    elif cv2.countNonZero(Box[609])>50:
+        print("4d")
+        keystud.append('4d')
+     
+        
+    if cv2.countNonZero(Box[278])>50:
+        print("5a")
+        keystud.append('5a')
+        
+    elif cv2.countNonZero(Box[390])>50:
+        print("5b")
+        keystud.append('5b')
+        
+    elif cv2.countNonZero(Box[502])>10:
+        print("5c")
+        keystud.append('5c')
+        
+    elif cv2.countNonZero(Box[614])>50:
+        print("5d")
+        keystud.append('5d')
+    
+    if cv2.countNonZero(Box[876])>50:
+        print("6a")
+        keystud.append('6a')
+        
+    elif cv2.countNonZero(Box[988])>50:
+        print("6b")
+        keystud.append('6b')
+        
+    elif cv2.countNonZero(Box[1100])>50:
+        print("6c")
+        keystud.append('6c')
+        
+    elif cv2.countNonZero(Box[1184])>50:
+        print("6d")
+        keystud.append('6d')
+        
+    if cv2.countNonZero(Box[880])>50:
+        print("7a")
+        keystud.append('7a')
+        
+    elif cv2.countNonZero(Box[992])>50:
+        print("7b")
+        keystud.append('7b')
+        
+    elif cv2.countNonZero(Box[1104])>50:
+        print("7c")
+        keystud.append('7c')
+        
+    elif cv2.countNonZero(Box[1188])>50:
+        print("7d")
+        keystud.append('7d')
+        
+    if cv2.countNonZero(Box[885])>50:
+        print("8a")
+        keystud.append('8a')
+        
+    elif cv2.countNonZero(Box[997])>50:
+        print("8b")
+        keystud.append('8b')
+        
+    elif cv2.countNonZero(Box[1109])>50:
+        print("8c")
+        keystud.append('8c')
+        
+    elif cv2.countNonZero(Box[1193])>50:
+        print("8d")
+        keystud.append('8d')
+        
+    
+    if cv2.countNonZero(Box[889])>50:
+        print("9a")
+        keystud.append('9a')
+        
+    elif cv2.countNonZero(Box[1001])>50:
+        print("9b")
+        keystud.append('9b')
+        
+    elif cv2.countNonZero(Box[1113])>50:
+        print("9c")
+        keystud.append('9c')
+        
+    elif cv2.countNonZero(Box[1197])>50:
+        print("9d")
+        keystud.append('9d')
+        
+        
+    if cv2.countNonZero(Box[894])>50:
+        print("10a")
+        keystud.append('10a')
+        
+    elif cv2.countNonZero(Box[1006])>50:
+        print("10b")
+        keystud.append('10b')
+        
+    elif cv2.countNonZero(Box[1117])>50:
+        print("10c")
+        keystud.append('10c')
+        
+    elif cv2.countNonZero(Box[1202])>50:
+        print("10d")
+        keystud.append('10d')
+ if cv2.countNonZero(Box1[62])>50:
+        print("11a")
+        keystud.append('11a')
+        
+    elif cv2.countNonZero(Box1[118])>70:
+        print("11b")
+        keystud.append('11b')
+        
+    elif cv2.countNonZero(Box1[146])>70:
+        print("11c")
+        keystud.append('11c')
+        
+    elif cv2.countNonZero(Box1[202])>70:
+        print("11d")
+        keystud.append('11d')
+        
+    if cv2.countNonZero(Box1[68])>70:
+        print("12a")
+        keystud.append('12a')
+        
+    elif cv2.countNonZero(Box1[124])>60:
+        print("12b")
+        keystud.append('12b')
+        
+    elif cv2.countNonZero(Box1[153])>70:
+        print("12c")
+        keystud.append('12c')
+        
+    elif cv2.countNonZero(Box1[208])>70:
+        print("12d")
+        keystud.append('12d')
+        
+    if cv2.countNonZero(Box1[75])>70:
+        print("13a")
+        keystud.append('13a')
+        
+    elif cv2.countNonZero(Box1[131])>300:
+        print("13b")
+        keystud.append('13b')
+        
+    elif cv2.countNonZero(Box1[159])>70:
+        print("13c")
+        keystud.append('13c')
+        
+    elif cv2.countNonZero(Box1[215])>70:
+        print("13d")
+        keystud.append('13d')
+        
+    if cv2.countNonZero(Box1[81])>70:
+        print("14a")
+        keystud.append('14a')
+        
+    elif cv2.countNonZero(Box1[137])>70:
+        print("14b")
+        keystud.append('14b')
+        
+    elif cv2.countNonZero(Box1[165])>70:
+        print("14c")
+        keystud.append('14c')
+        
+    elif cv2.countNonZero(Box1[221])>70:
+        print("14d")
+        keystud.append('14d')
+        
+    if cv2.countNonZero(Box1[370])>70:
+        print("15a")
+        keystud.append('15a')
+        
+    elif cv2.countNonZero(Box1[398])>100:
+        print("15b")
+        keystud.append('15b')
+        
+    elif cv2.countNonZero(Box1[426])>70:
+        print("15c")
+        keystud.append('15c')
+        
+    elif cv2.countNonZero(Box1[482])>70:
+        print("15d")
+        keystud.append('15d')
+        
+    if cv2.countNonZero(Box1[376])>70:
+        print("16a")
+        keystud.append('16a')
+        
+    elif cv2.countNonZero(Box1[404])>100:
+        print("16b")
+        keystud.append('16b')
+        
+    elif cv2.countNonZero(Box1[432])>100:
+        print("16c")
+        keystud.append('16c')
+        
+        
+    elif cv2.countNonZero(Box1[488])>70:
+        print("16d")
+        keystud.append('16d')
+        
+    if cv2.countNonZero(Box1[383])>70:
+        print("17a")
+        keystud.append('17a')
+        
+    elif cv2.countNonZero(Box1[410])>100:
+        print("17b")
+        keystud.append('17b')
+        
+    elif cv2.countNonZero(Box1[439])>100:
+        print("17c")
+        keystud.append('17c')
+        
+    elif cv2.countNonZero(Box1[495])>70:
+        print("17d")
+        keystud.append('17d')
+        
+    if cv2.countNonZero(Box1[389])>100:
+        print("18a")
+        keystud.append('18a')
+        
+    elif cv2.countNonZero(Box1[417])>100:
+        print("18b")
+        keystud.append('18b')
+        
+    elif cv2.countNonZero(Box1[445])>100:
+        print("18c")
+        keystud.append('18c')
+        
+    elif cv2.countNonZero(Box1[501])>70:
+        print("18d")
+        keystud.append('18d')
+        
+    if cv2.countNonZero(Box1[650])>100:
+        print("19a")
+        keystud.append('19a')
+        
+    elif cv2.countNonZero(Box1[678])>100:
+        print("19b")
+        keystud.append('19b')
+        
+    elif cv2.countNonZero(Box1[706])>100:
+        print("19c")
+        keystud.append('19c')
+        
+        
+    elif cv2.countNonZero(Box1[761])>70:
+        print("19d")
+        keystud.append('19d')
+        
+    if cv2.countNonZero(Box1[656])>100:
+        print("20a")
+        keystud.append('20a')
+        
+    elif cv2.countNonZero(Box1[684])>100:
+        print("20b")
+        keystud.append('20b')
+        
+    elif cv2.countNonZero(Box1[712])>100:
+        print("20c")
+        keystud.append('20c')
+        
+    elif cv2.countNonZero(Box1[768])>70:
+        print("20d")
+        keystud.append('20d')
+        
+    if cv2.countNonZero(Box1[663])>70:
+        print("21a")
+        keystud.append('21a')
+        
+    elif cv2.countNonZero(Box1[690])>70:
+        print("21b")
+        keystud.append('21b')
+        
+    elif cv2.countNonZero(Box1[718])>70:
+        print("21c")
+        keystud.append('21c')
+        
+    elif cv2.countNonZero(Box1[774])>70:
+        print("21d")
+        keystud.append('21d')
+        
+    if cv2.countNonZero(Box1[669])>100:
+        print("22a")
+        keystud.append('22a')
+        
+    elif cv2.countNonZero(Box1[697])>100:
+        print("22b")
+        keystud.append('22b')
+        
+    elif cv2.countNonZero(Box1[724])>100:
+        print("22c")
+        keystud.append('22c')
+        
+    elif cv2.countNonZero(Box1[781])>70:
+        print("22d")
+        keystud.append('22d')
+        
+    if cv2.countNonZero(Box1[930])>70:
+        print("23a")
+        keystud.append('23a')
+        
+    elif cv2.countNonZero(Box1[958])>70:
+        print("23b")
+        keystud.append('23b')
+        
+    elif cv2.countNonZero(Box1[1014])>100 and cv2.countNonZero(Box1[1042])<200:
+        print("23c")
+        keystud.append('23c')
+        
+    #print(cv2.countNonZero(Box1[1042]))
+    elif cv2.countNonZero(Box1[1042])>70:
+        print("23d")
+        keystud.append('23d')
+        
+    if cv2.countNonZero(Box1[936])>70:
+        print("24a")
+        keystud.append('24a')
+        
+    elif cv2.countNonZero(Box1[964])>70:
+        print("24b")
+        keystud.append('24b')
+        
+    elif cv2.countNonZero(Box1[1020])>200 and cv2.countNonZero(Box1[1049])<200:
+        print("24c")
+        keystud.append('24c')
+        
+    #print(cv2.countNonZero(Box1[1049]))
+    elif cv2.countNonZero(Box1[1049])>70:
+        print("24d")
+        keystud.append('24d')
+        
+    if cv2.countNonZero(Box1[943])>70:
+        print("25a")
+        keystud.append('25a')
+        
+    elif cv2.countNonZero(Box1[970])>70:
+        print("25b")
+        keystud.append('25b')
+    
+    elif cv2.countNonZero(Box1[1026])>200 and cv2.countNonZero(Box1[1055])<200:
+        print("25c")
+        keystud.append('25c')
+        
+    #print(cv2.countNonZero(Box1[1055]))
+    elif cv2.countNonZero(Box1[1055])>70:
+        print("25d")
+        keystud.append('25d')
+        
+    if cv2.countNonZero(Box1[949])>70:
+        print("26a")
+        keystud.append('26a')
+        
+    elif cv2.countNonZero(Box1[977])>70:
+        print("26b")
+        keystud.append('26b')
+    
+    elif cv2.countNonZero(Box1[1033])>200 and cv2.countNonZero(Box1[1061])<200:
+        keystud.append('26c')
+        print("26c")
+        
+    #print(cv2.countNonZero(Box1[1061]))
+    elif cv2.countNonZero(Box1[1061])>70:
+        print("26d")
+        keystud.append('26d')
+        
+        
+    if cv2.countNonZero(Box1[1210])>70:
+        print("27a")
+        keystud.append('27a')
+        
+    elif cv2.countNonZero(Box1[1238])>70:
+        print("27b")
+        keystud.append('27b')
+        
+    elif cv2.countNonZero(Box1[1294])>70:
+        print("27c")
+        keystud.append('27c')
+        
+    elif cv2.countNonZero(Box1[1322])>70:
+        print("27d")
+        keystud.append('27d')
+        
+    if cv2.countNonZero(Box1[1216])>70:
+        print("28a")
+        keystud.append('28a')
+        
+    elif cv2.countNonZero(Box1[1244])>70:
+        print("28b")
+        keystud.append('28b')
+        
+    elif cv2.countNonZero(Box1[1300])>70:
+        print("28c")
+        keystud.append('28c')
+        
+    elif cv2.countNonZero(Box1[1328])>70:
+        print("28d")
+        keystud.append('28d')
+        
+        
+    if cv2.countNonZero(Box1[1222])>70:
+        print("29a")
+        keystud.append('29a')
+        
+    elif cv2.countNonZero(Box1[1251])>70:
+        print("29b")
+        keystud.append('29b')
+        
+    elif cv2.countNonZero(Box1[1307])>70:
+        print("29c")
+        keystud.append('29c')
+        
+    elif cv2.countNonZero(Box1[1335])>70:
+        print("29d")
+        keystud.append('29d')
+     
+    if cv2.countNonZero(Box1[1229])>70:
+        print("30a")
+        keystud.append('30a')
+        
+    elif cv2.countNonZero(Box1[1257])>70:
+        print("30b")
+        keystud.append('30b')
+        
+    elif cv2.countNonZero(Box1[1313])>70:
+        print("30c")
+        keystud.append('30c')
+        
+    elif cv2.countNonZero(Box1[1341])>70:
+        print("30d")
+        keystud.append('30d')
+        
+        
+    result=0
+    for z in keyres:
+        if z in keystud:
+            result=result+1
+                
+    print("marks=",result)
+    #############################
+    #cv2.imshow("test1",Box[60])
+    rolln=''.join(map(str,rollno))
+    print(rolln)
+    
+    client=pymongo.MongoClient('mongodb://127.0.0.1:27017/')
+    mydb=client['OMR']
+    info=mydb.studdata
+    record={
+    'Roll_Number': json.dumps(rolln),
+    'Marks':json.dumps(result)
+    }
+   
+   
+    flag=0
+    chk=info.find_one({"Roll_Number": {"$exists": True,"$in":[json.dumps(rolln)]}})
+    
+    if(chk==None):
+        info.insert_one(record)
+   
+   
+    #cv2.waitKey(0)                
+if __name__=="__main__":
+
+    app.run(host='------------',port=5000)
