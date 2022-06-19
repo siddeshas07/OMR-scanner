@@ -1,7 +1,7 @@
 # OMR-scanner
 ![ScreenShot](MCQPaper_LI.jpg)
 
-![ScreenShot](.jpg)
+![ScreenShot](imageomr1.jpg)
 
 
 ![ScreenShot](.jpg)
